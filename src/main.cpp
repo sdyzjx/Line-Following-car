@@ -1,6 +1,14 @@
+/*-----------------------------------
+ * 导入库
+ -----------------------------------*/
 #include <Arduino.h>
 #include "../lib/PID/PID.h"
 #include "../lib/Motor/Motor.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+/*-----------------------------------
+ * 针脚/常量定义
+ -----------------------------------*/
 #define l_motor_1 26
 #define l_motor_2 27
 #define r_motor_1 33
@@ -12,11 +20,6 @@
 #define ENCODERl_A_PIN 15
 #define ENCODERl_B_PIN 13
 #define TARGET_SPEED 500
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
-//pid类 (已迁移至library文件夹)
-//电机类 (已迁移至library文件夹)
 
 /*-----------------------------------
  * 全局变量定义
@@ -37,7 +40,9 @@ int l_i = 0;
 int r_i = 0;
 int x_diff = 0;
 double slope = 0;
-
+/*-----------------------------------
+ * 速度获取/处理
+ -----------------------------------*/
 void read_quadrature_r()
 {
     if (digitalRead(pulse_number_r) == LOW) { //如果是下降沿触发的中断
@@ -60,8 +65,7 @@ void read_quadrature_l()
         else     pulse_number_l++;
     }
 }
-void speed() //获得速度
-{
+void speed() /*获得速度*/{
     double rps1,rps2;
     rps_r = pulse_number_l*100/(90*12*0.005);
     rps_l = pulse_number_r*100/(90*12*0.005);
@@ -168,8 +172,7 @@ String recFun(){
     }
 
 }
-String explain_str(char flag_start, char flag_end, String input_str)
-{
+String explain_str(char flag_start, char flag_end, String input_str) {
     int index_start = 0;
     int index_end = 0;
     String final_data = "";
@@ -183,7 +186,9 @@ String explain_str(char flag_start, char flag_end, String input_str)
     }
     return final_data;
 }
-
+/*-----------------------------------
+ * 上位机相关函数
+ -----------------------------------*/
 void looprec(){
     String rec_V831_str = "";
     String command_str = "";
@@ -227,9 +232,6 @@ union SeFrame
     float Float; //Arduino中float占4个字节，对应于simulink中的single（32位，4个字节）
     byte Byte[4];
 };
-/*-----------------------------------
- * 上位机相关函数
- -----------------------------------*/
 SeFrame Sefram;
 void sendFloat( float FLOAT)
 {
