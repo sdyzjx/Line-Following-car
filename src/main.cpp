@@ -20,17 +20,16 @@
 #define ENCODERl_A_PIN 15
 #define ENCODERl_B_PIN 13
 #define TARGET_SPEED 500
-
 /*-----------------------------------
  * 全局变量定义
  -----------------------------------*/
-double kp=0.5 ,ki=0 ,kd=0 ,dt=0.3 ,set_point_l=TARGET_SPEED, set_point_r=TARGET_SPEED;
+double kp=0.5 ,ki=0 ,kd=0 ,dt=0.3;
 Motor motor;
-PID rps_l_pid(set_point_l, kp, ki, kd, dt); //左轮pid
-PID rps_r_pid(set_point_r, kp, ki, kd, dt); //右轮pid
-PID x_cam_diff_control(0, 0.5, 0, 0, dt);
-PID x_cam_slope_control(0, 0.5, 0, 0, dt);
-PID x_IR_diff_control(4.5, 0.5, 0, 0, dt);
+PID rps_l_pid(TARGET_SPEED, kp, ki, kd, dt); //左轮pid
+PID rps_r_pid(TARGET_SPEED, kp, ki, kd, dt); //右轮pid
+//PID x_cam_diff_control(0, 0.5, 0, 0, dt);
+//PID x_cam_slope_control(0, 0.5, 0, 0, dt);
+PID x_IR_diff_control(5.5, 0.5, 0, 0, dt);
 int pulse_number_l = 0;
 int pulse_number_r = 0;
 int stop_flag = 0;
@@ -38,7 +37,7 @@ double rps_r = 0;
 double rps_l = 0;
 int l_i = 0;
 int r_i = 0;
-int x_diff = 0;
+double x_diff = 5.5;
 double slope = 0;
 /*-----------------------------------
  * 速度获取/处理
@@ -90,31 +89,31 @@ void control_time( void * parameter ){
         int pwm_l_output_val = (int)(rps_l_output_val*0.21);
         int pwm_r_output_val = (int)(rps_r_output_val*0.21);
 //-----------------------------------------------------------
-        if (abs(rps_l - set_point_l) >= 50){//区间增量
-            if(rps_l - set_point_l > 0){
+        if (abs(rps_l - rps_l_pid.setpoint) >= 50){//区间增量
+            if(rps_l - rps_l_pid.setpoint > 0){
                 l_i --;
                 pwm_l_output_val += l_i;
             }
-            if(rps_l - set_point_l < 0){
+            if(rps_l - rps_l_pid.setpoint < 0){
                 l_i ++;
                 pwm_l_output_val += l_i;
             }
         }
-        if (abs(rps_l - set_point_l) < 50){
+        if (abs(rps_l - rps_l_pid.setpoint) < 50){
             l_i = 0;
         }
 
-        if (abs(rps_r - set_point_l) >= 50){
-            if(rps_r - set_point_l > 0){
+        if (abs(rps_r - rps_r_pid.setpoint) >= 50){
+            if(rps_r - rps_r_pid.setpoint > 0){
                 r_i --;
                 pwm_r_output_val += r_i;
             }
-            if(rps_r - set_point_l < 0){
+            if(rps_r - rps_r_pid.setpoint < 0){
                 r_i ++;
                 pwm_r_output_val += r_i;
             }
         }
-        if (abs(rps_r - set_point_l) < 50){
+        if (abs(rps_r - rps_r_pid.setpoint) < 50){
             r_i = 0;
         }
 //----------------------------------
@@ -131,25 +130,27 @@ void control_time( void * parameter ){
  * 差速控制PID(IR)
  -----------------------------------*/
 void x_diff_IR( void * parameter ) {
-    double x_diff_val = x_IR_diff_control.output((double)x_diff);
-    double speed_diff = x_diff_val - 4.5;
-    double r_control_val = speed_diff / 4.5 * 1200;
-    double l_control_val = -speed_diff / 4.5 * 1200;
-    rps_l_pid.setpoint = r_control_val;
-    rps_r_pid.setpoint = l_control_val;
+
+    double x_diff_val = x_IR_diff_control.output(x_diff);
+    double speed_diff = x_diff_val - 5.5;
+    double r_control_val = speed_diff / 5.5 * 100;
+    double l_control_val = -speed_diff / 5.5 * 100;
+    rps_r_pid.setpoint = rps_r_pid.setpoint + r_control_val;
+    rps_l_pid.setpoint = rps_l_pid.setpoint + l_control_val;
 }
 /*-----------------------------------
  * 差速控制PID(camera)
- -----------------------------------*/
+
 void x_diff_cam( void * parameter ) {
     double diff_val = x_cam_diff_control.output((double)x_diff);
     double slope_val = x_cam_slope_control.output((double)x_diff);
     double speed_diff = diff_val / 120 + slope_val / 1.57;
-    double r_control_val = speed_diff * 1200;
-    double l_control_val = -speed_diff * 1200;
+    double r_control_val = -speed_diff * 1200;
+    double l_control_val = speed_diff * 1200;
     rps_l_pid.setpoint = r_control_val;
     rps_r_pid.setpoint = l_control_val;
 }
+* -----------------------------------/
 /*-----------------------------------
  * 传感器数据获取
  -----------------------------------*/
@@ -164,6 +165,11 @@ String recFun(){
     else if(Serial.available()&& (char)Serial.read() == 'c')
     {
         rec_str = 'c'+Serial.readStringUntil('@') + '@';
+        return rec_str;
+    }
+    else if(Serial2.available()&& (char)Serial.read() == 'a')
+    {
+        rec_str = 'a'+Serial.readStringUntil('@') + 'b';
         return rec_str;
     }
     else
@@ -190,40 +196,51 @@ String explain_str(char flag_start, char flag_end, String input_str) {
  * 上位机相关函数
  -----------------------------------*/
 void looprec(){
-    String rec_V831_str = "";
     String command_str = "";
-    double cam_diff_p = 0, cam_diff_i = 0, cam_diff_d = 0;
-    double cam_slope_p = 0, cam_slope_i = 0, cam_slope_d = 0;
+    String IR_rec = "";
+    double rps_kp = 0, rps_ki = 0, rps_kd = 0;
+    //double cam_slope_p = 0, cam_slope_i = 0, cam_slope_d = 0;
     double ir_diff_p = 0, ir_diff_i = 0, ir_diff_d = 0;
     String recieve_str;
     recieve_str = recFun();
     if ( recieve_str.charAt(0) == 'c') {
-        String cam_diff = "";
-        String cam_slope = "";
-        String IR_diff = "";
-        cam_diff = explain_str( '^','&',command_str);
-        cam_slope = explain_str( '$','#',command_str);
-        IR_diff = explain_str( '%','@',command_str);
+        command_str = recieve_str;
+        //String cam_diff = "";
+        //String cam_slope = "";
+        String rps_pid = "";
+        String IR_diff_pid = "";
+        rps_pid = explain_str( '^','%',command_str) + '%';
+        IR_diff_pid = explain_str('%', '@', command_str) + '@';
 
-        cam_diff_p = explain_str( 'd','k',cam_diff).toDouble();
-        cam_diff_i = explain_str( 'd','k',cam_diff).toDouble();
-        cam_diff_d = explain_str( 'd','k',cam_diff).toDouble();
-        cam_slope_p = explain_str( 'd','k',cam_slope).toDouble();
-        cam_slope_i = explain_str( 'd','k',cam_slope).toDouble();
-        cam_slope_d = explain_str( 'd','k',cam_slope).toDouble();
-        x_cam_diff_control.set_pid(cam_diff_p, cam_diff_i, cam_slope_d);
-        x_cam_slope_control.set_pid(cam_slope_p, cam_slope_i, cam_slope_d);
+        ir_diff_p = explain_str('P', 'I', IR_diff_pid).toDouble();
+        ir_diff_i = explain_str('I', 'D', IR_diff_pid).toDouble();
+        ir_diff_d = explain_str('D', '@', IR_diff_pid).toDouble();
 
-        /*
-        ir_diff_p = explain_str( 'd','k',IR_diff).toDouble();
-        ir_diff_i = explain_str( 'd','k',IR_diff).toDouble();
-        ir_diff_d = explain_str( 'd','k',IR_diff).toDouble();
-         */
+        rps_kp = explain_str('p', 'i', rps_pid).toDouble();
+        rps_ki = explain_str('i', 'd', rps_pid).toDouble();
+        rps_kd = explain_str('d', '%', rps_pid).toDouble();
+
+        rps_l_pid.set_pid(rps_kp, rps_ki, rps_kd);
+        rps_r_pid.set_pid(rps_kp, rps_ki, rps_kd);
+        x_IR_diff_control.set_pid(ir_diff_p, ir_diff_i, ir_diff_d);
+        Serial.println(rps_l_pid.kd);
     }
 
-    if ( recieve_str.charAt(0) == 'd') {
-        x_diff = explain_str( 'd','k',rec_V831_str).toInt();
-        slope = explain_str('k', '*', rec_V831_str).toDouble();
+    if ( recieve_str.charAt(0) == 'd' ) {
+        x_diff = explain_str( 'd','k',recieve_str).toInt();
+        slope = explain_str('k', '*', recieve_str).toDouble();
+    }
+    if ( recieve_str.charAt(0) == 'a' ) {
+        IR_rec = explain_str('a', 'b', recieve_str);
+        int pos = 0, count = 0;
+        for (int i = 0; i < 9; ++i) {
+            if (IR_rec.charAt(i) == '1') {
+                pos = pos + i;
+                count++;
+            }
+        }
+        x_diff = (double)pos / (double)count;
+
     }
 
 }
@@ -259,9 +276,9 @@ void send_wave(void * parameter)/*发送给上位机*/{
     sendFloat((float)x_diff);
     sendFloat((float)rps_l);
     sendFloat((float)rps_r);
-    sendFloat((float)kp);
-    sendFloat((float)ki);
-    sendFloat((float)kd);
+    sendFloat((float)rps_l_pid.kp);
+    sendFloat((float)rps_l_pid.ki);
+    sendFloat((float)rps_l_pid.kd);
     sendFloat((float)dt);
     Serial.write(frameDataEnd);
 }
@@ -269,15 +286,15 @@ void send_wave(void * parameter)/*发送给上位机*/{
  * 参数初始化
  -----------------------------------*/
 void setup() {
-    Serial.begin(115200);
-    Serial2.begin(115200);
+    Serial.begin(9600);
+    //Serial2.begin(115200);
     motor.setPins(l_motor_1 ,l_motor_2,l_motor_pwm,r_motor_1, r_motor_2,r_motor_pwm);
     TimerHandle_t myTimer;
     myTimer = xTimerCreate("myTimer",30,pdTRUE,(void*)1,control_time);
     TimerHandle_t Send;
     Send = xTimerCreate("Send",500,pdTRUE,(void*)1,send_wave);
     TimerHandle_t diff_control;
-    diff_control = xTimerCreate("diff_control", 30, pdTRUE, (void*)1, x_diff_cam);
+    diff_control = xTimerCreate("diff_control", 30, pdTRUE, (void*)1, x_diff_IR);
     xTimerStart(myTimer,40);
     xTimerStart(Send,40);
     xTimerStart(diff_control,40);
@@ -285,5 +302,5 @@ void setup() {
     attachInterrupt(ENCODERr_A_PIN, read_quadrature_r, FALLING);
 }
 void loop() {
-
+    looprec();
 }
